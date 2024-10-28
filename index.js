@@ -119,6 +119,11 @@ function Physics (mcData, world) {
               blockBB.offset(blockPos.x, blockPos.y, blockPos.z)
               surroundingBBs.push(blockBB)
             }
+          } else if (!world.faked) {
+            // block is not loaded, pretend it is full block
+            const blockBB = new AABB(0, 0, 0, 1, 1, 1)
+            blockBB.offset(cursor.x, cursor.y, cursor.z)
+            surroundingBBs.push(blockBB)
           }
         }
       }
@@ -419,7 +424,10 @@ function Physics (mcData, world) {
     vel.z += forward * cos - strafe * sin
   }
 
-  function isOnLadder (world, pos) {
+  function isOnLadder (world, pos, entity) {
+    if (entity.creativeFly) {
+      return false
+    }
     const block = world.getBlock(pos)
     return (block && (block.type === ladderId || block.type === vineId))
   }
@@ -435,7 +443,7 @@ function Physics (mcData, world) {
 
     const gravityMultiplier = (vel.y <= 0 && entity.slowFalling > 0) ? physics.slowFalling : 1
 
-    if (entity.isInWater || entity.isInLava) {
+    if ((entity.isInWater || entity.isInLava) && !entity.creativeFly) {
       // Water / Lava movement
       const lastY = pos.y
       let acceleration = physics.liquidAcceleration
@@ -547,7 +555,7 @@ function Physics (mcData, world) {
 
       applyHeading(entity, strafe, forward, acceleration)
 
-      if (isOnLadder(world, pos)) {
+      if (isOnLadder(world, pos, entity)) {
         vel.x = math.clamp(-physics.ladderMaxSpeed, vel.x, physics.ladderMaxSpeed)
         vel.z = math.clamp(-physics.ladderMaxSpeed, vel.z, physics.ladderMaxSpeed)
         vel.y = Math.max(vel.y, entity.control.sneak ? 0 : -physics.ladderMaxSpeed)
@@ -555,7 +563,7 @@ function Physics (mcData, world) {
 
       moveEntity(entity, world, vel.x, vel.y, vel.z)
 
-      if (isOnLadder(world, pos) && (entity.isCollidedHorizontally ||
+      if (isOnLadder(world, pos, entity) && (entity.isCollidedHorizontally ||
         (supportFeature('climbUsingJump') && entity.control.jump))) {
         vel.y = physics.ladderClimbSpeed // climb ladder
       }
@@ -669,6 +677,15 @@ function Physics (mcData, world) {
   }
 
   physics.simulatePlayer = (entity, world) => {
+    if (entity.spectator) {
+      entity.creativeFly = true
+      world = {
+        getBlock: (pos) => {
+          return
+        },
+        faked: true
+      }
+    }
     const vel = entity.vel
     const pos = entity.pos
 
@@ -774,6 +791,8 @@ class PlayerState {
     // Input / Outputs
     this.pos = bot.entity.position.clone()
     this.vel = bot.entity.velocity.clone()
+    this.creativeFly = bot.entity.creativeFly
+    this.spectator = bot.game.gameMode === 'spectator'
     this.onGround = bot.entity.onGround
     this.isInWater = bot.entity.isInWater
     this.isInLava = bot.entity.isInLava
